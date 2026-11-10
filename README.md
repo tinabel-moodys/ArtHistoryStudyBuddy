@@ -96,6 +96,7 @@ Type a file path (or use **Browse…**) in the exam editor. See [`sample-exam.md
 | `npm run lint` | ESLint with `typescript-eslint` (strict, type-checked) |
 | `npm test` | Run the Jest tests |
 | `npm run test:coverage` | Tests with a coverage report |
+| `npm run check:apis` | Live check that the Met, Wikimedia and Wikidata services still answer as the app expects (the tests stub the network, so they can't notice a service changing) |
 | `npm run package` | Build and package the `.app` |
 | `npm run dist` | Package, then build the `.dmg` installer |
 

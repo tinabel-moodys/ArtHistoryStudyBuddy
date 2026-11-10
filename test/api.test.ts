@@ -45,6 +45,38 @@ describe('Met API', () => {
     expect(calls[0]).toContain('q=portrait');
   });
 
+  it('searches the v1.1 endpoint (v1 search was retired) with a page size and offset', async () => {
+    const calls = stubFetch([['/search', { total: 3, objectIDs: [1, 2, 3] }]]);
+    await met.searchIds({ q: 'monet' });
+    expect(calls[0]).toContain('/public/collection/v1.1/search?');
+    expect(calls[0]).not.toContain('/v1/search');
+    for (const part of ['hasImages=true', 'q=monet', 'limit=50', 'offset=0']) expect(calls[0]).toContain(part);
+  });
+
+  it('searchPage returns the total and one page of ids; a missing total falls back to the page size', async () => {
+    const calls = stubFetch([['/search', { total: 5000, objectIDs: [7, 8] }]]);
+    expect(await met.searchPage({ q: 'art' }, { limit: 2, offset: 40 })).toEqual({ total: 5000, ids: [7, 8] });
+    expect(calls[0]).toContain('limit=2');
+    expect(calls[0]).toContain('offset=40');
+    stubFetch([['/search', { objectIDs: [1, 2, 3] }]]);
+    expect(await met.searchPage({ q: 'art' }, { limit: 10 })).toEqual({ total: 3, ids: [1, 2, 3] });
+    stubFetch([['/search', {}]]);
+    expect(await met.searchPage({ q: 'art' }, { limit: 10 })).toEqual({ total: 0, ids: [] });
+  });
+
+  it('a retired search endpoint is an error, not "no results"', async () => {
+    stubFetch([['/search', new Error('gone')]]);
+    await expect(met.searchWorks('monet')).rejects.toThrow(/HTTP 500/);
+  });
+
+  it('still uses v1 for departments and individual objects', async () => {
+    const calls = stubFetch([['/departments', { departments: [] }], ['/objects/9', { objectID: 9 }]]);
+    await met.listDepartments();
+    await met.getObject(9);
+    expect(calls[0]).toContain('/public/collection/v1/departments');
+    expect(calls[1]).toContain('/public/collection/v1/objects/9');
+  });
+
   it('searchIds returns [] when the API has no objectIDs', async () => {
     stubFetch([['/search', { total: 0, objectIDs: null }]]);
     expect(await met.searchIds({ q: 'zzz' })).toEqual([]);

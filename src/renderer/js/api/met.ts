@@ -2,7 +2,10 @@
 import type { Work } from '../types.js';
 import { getJson } from './http.js';
 
-const BASE = 'https://collectionapi.metmuseum.org/public/collection/v1';
+const ROOT = 'https://collectionapi.metmuseum.org/public/collection';
+const BASE = `${ROOT}/v1`;
+// /v1/search was retired on 2026-10-01 (it answers 410 Gone). v1.1 is paginated with limit and offset.
+const SEARCH = `${ROOT}/v1.1/search`;
 
 export interface MetObject {
   objectID: number;
@@ -23,10 +26,24 @@ export async function listDepartments(): Promise<Department[]> {
   return (await getJson<{ departments: Department[] }>(`${BASE}/departments`)).departments;
 }
 
-/** Object IDs matching params (always restricted to objects with images). */
-export async function searchIds(params: Record<string, string>): Promise<number[]> {
-  const result = await getJson<{ objectIDs?: number[] | null }>(`${BASE}/search`, { hasImages: 'true', ...params });
-  return result.objectIDs ?? [];
+export interface SearchPage {
+  /** How many objects match in all, not just on this page. */
+  total: number;
+  ids: number[];
+}
+
+/** One page of matches (always restricted to objects with images). */
+export async function searchPage(params: Record<string, string>, page: { limit: number; offset?: number }): Promise<SearchPage> {
+  const result = await getJson<{ total?: number; objectIDs?: number[] | null }>(SEARCH, {
+    hasImages: 'true', ...params, limit: String(page.limit), offset: String(page.offset ?? 0),
+  });
+  const ids = result.objectIDs ?? [];
+  return { total: result.total ?? ids.length, ids };
+}
+
+/** The best matches for params: the first page of results. */
+export async function searchIds(params: Record<string, string>, limit = 50): Promise<number[]> {
+  return (await searchPage(params, { limit })).ids;
 }
 
 export async function getObject(id: number): Promise<MetObject | null> {

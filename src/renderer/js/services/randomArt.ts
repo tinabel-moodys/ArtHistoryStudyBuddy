@@ -3,8 +3,20 @@ import * as met from '../api/met.js';
 import type { Filter, Work } from '../types.js';
 import { pick } from '../util.js';
 
-const idCache = new Map<string, number[]>(); // search params -> object IDs
 const MAX_TRIES = 8;
+const PAGE_SIZE = 20;
+/** The search service only pages a limited way in, so random picks stay within the first few thousand matches. */
+const MAX_OFFSET = 9_000;
+
+const totals = new Map<string, number>(); // search params -> how many objects match
+
+async function totalFor(key: string, params: Record<string, string>): Promise<number> {
+  const known = totals.get(key);
+  if (known !== undefined) return known;
+  const { total } = await met.searchPage(params, { limit: 1 });
+  totals.set(key, total);
+  return total;
+}
 
 /** A work with an image and an artist, or null if none could be found. */
 export async function pickRandomWork(filter: Filter): Promise<Work | null> {
@@ -15,15 +27,14 @@ export async function pickRandomWork(filter: Filter): Promise<Work | null> {
     params.dateEnd = filter.to;
   }
 
-  const key = JSON.stringify(params);
-  let ids = idCache.get(key);
-  if (!ids) {
-    ids = await met.searchIds(params);
-    idCache.set(key, ids);
-  }
-  if (!ids.length) return null;
+  const total = await totalFor(JSON.stringify(params), params);
+  if (!total) return null;
 
+  // Results come in pages, so jump to a random page and take one of its objects.
   for (let i = 0; i < MAX_TRIES; i++) {
+    const offset = Math.floor(Math.random() * Math.min(total, MAX_OFFSET));
+    const { ids } = await met.searchPage(params, { limit: PAGE_SIZE, offset });
+    if (!ids.length) continue;
     const o = await met.getObject(pick(ids));
     if (o?.primaryImageSmall && o.artistDisplayName) return met.toWork(o);
   }
