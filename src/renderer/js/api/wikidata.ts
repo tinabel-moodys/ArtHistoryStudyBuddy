@@ -37,8 +37,17 @@ function call<T>(params: Record<string, string>): Promise<T> {
     }
   });
   queue = run.catch(() => undefined).then(() => sleep(SPACING_MS));
+  run.catch((error: unknown) => { if (!isClientError(error)) failures++; }); // a 404 is an answer, not an outage
   return run;
 }
+
+let failures = 0;
+
+/**
+ * How many Wikidata requests have failed outright (network error, timeout, 5xx, 429) as opposed to getting an answer.
+ * Compare before and after a lookup to tell "unknown" from "couldn't ask".
+ */
+export const failureCount = (): number => failures;
 
 const valuesOf = (entity: Entity, property: string): unknown[] =>
   (entity.claims?.[property] ?? []).map((c) => c.mainsnak?.datavalue?.value);
