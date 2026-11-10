@@ -1,13 +1,13 @@
 # ArtHistoryStudyBuddy
 
-Art history study and review app for macOS (Electron). Build exams from "must know" works and terms, then drill them with flashcards or multiple-choice quizzes. Scores are saved per exam.
+Art history study and review app for macOS (Electron + TypeScript). Build exams from "must know" works and terms, then drill them with flashcards or multiple-choice quizzes. Scores are saved per exam.
 
 ## Requirements
 
 - macOS
-- [Node.js](https://nodejs.org) 18 or newer (includes `npm`)
+- [Node.js](https://nodejs.org) 22.13 or newer (includes `npm`)
 - [Git](https://git-scm.com)
-- Internet connection (artwork images and term definitions are fetched live)
+- Internet connection (artwork images, definitions and nationalities are fetched live)
 
 ## Installation
 
@@ -22,6 +22,8 @@ npm install
 ```bash
 npm start
 ```
+
+This compiles the TypeScript to `build/` and launches the app.
 
 ## Package as a macOS app
 
@@ -44,7 +46,7 @@ The packaged app keeps its own saved data, separate from `npm start`, so exams m
    - **Random art pool (optional):** pull random Met art by department and year range.
 3. **Save Exam**, then **Study**. Choose Flashcard or Quiz, and Works, Terms, or mixed.
    - Flashcards: reveal the answer, then mark **Got it** or **Missed**.
-   - Quizzes: pick from four choices.
+   - Quizzes: pick from four choices. In term quizzes the term is blanked out of its own definition.
 
 Use ↺ on the home screen to reset an exam's scores.
 
@@ -68,25 +70,48 @@ Type a file path (or use **Browse…**) in the exam editor. See [`sample-exam.md
 - Every work and term links to its source.
 - Each artist's nationality (e.g. "French") comes from the Met record or Wikidata and shows with the answer. Exams saved before this existed fill it in the first time a work comes up. Check it for historical cases: Wikidata may say "Prussian" where your course says "German".
 
-## Project structure
+## Development
+
+| Command | What it does |
+|---|---|
+| `npm start` | Build, then launch the app |
+| `npm run build` | Compile TypeScript to `build/` and copy HTML/CSS |
+| `npm run typecheck` | Type-check source and tests (no output files) |
+| `npm run lint` | ESLint with `typescript-eslint` (strict, type-checked) |
+| `npm test` | Run the Jest tests |
+| `npm run test:coverage` | Tests with a coverage report |
+| `npm run package` | Build and package the `.app` |
+
+Tests never touch the network: `fetch` is stubbed. UI tests run the real UI modules in jsdom.
+
+Pull requests run typecheck, lint, tests and build in GitHub Actions (`.github/workflows/ci.yml`).
+
+### Project structure
 
 ```
-main.js            Electron main process: creates the window
-ipc.js             Main-process file access (read markdown, file picker)
-preload.js         Exposes ipc to the page as window.api
-renderer/
-  index.html       Markup only
-  styles.css       Styles only
-  js/
-    app.js         Entry point: event dispatch, view registration
-    ui/            DOM rendering and event handlers (home, editor, study, router, dom helpers)
-    quiz.js        Study logic: sources, cards, multiple-choice answers
-    store.js       Exam persistence and score keeping (localStorage)
-    markdown.js    Pure parsing of markdown and term text
-    services/      Multi-step workflows: import, image lookup, random art
-    api/           One client per data source: Met, Wikimedia Commons, Wikipedia, Wikidata
-    data/          Static data
-    util.js        Pure helpers
+src/
+  main/            Electron main process (CommonJS)
+    main.ts          creates the window
+    ipc.ts           file access the sandboxed page can't do itself
+    paths.ts         path normalisation (pure)
+    preload.ts       exposes a typed window.api to the page
+  shared/api.d.ts  the window.api contract, shared by main and renderer
+  renderer/        the page (ES modules, runs in the browser)
+    index.html       markup only
+    styles.css       styles only
+    js/
+      app.ts           entry point: event dispatch, view registration
+      ui/              DOM rendering and event handlers (home, editor, study, router, dom helpers)
+      quiz.ts          study logic: sources, cards, multiple-choice answers
+      store.ts         exam persistence and score keeping (localStorage)
+      markdown.ts      pure parsing of markdown and term text
+      textMask.ts      pure: hides a term inside its definition
+      services/        multi-step workflows: import, image lookup, nationality, random art
+      api/             one client per data source: Met, Wikimedia Commons, Wikipedia, Wikidata
+      data/            static data
+      types.ts, util.ts
+test/              Jest tests (unit, plus jsdom UI tests)
+build/             compiled output (git-ignored)
 ```
 
 Dependencies point one way: `ui` → `quiz` / `store` / `services` → `api`. Only `ui` touches the DOM and only `store` touches `localStorage`.

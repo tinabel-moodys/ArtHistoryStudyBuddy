@@ -1,0 +1,87 @@
+import {
+  formatTermLines, parseExamMarkdown, parseTermLine, parseTermLines, parseWork, stripMd,
+} from '../src/renderer/js/markdown.js';
+
+describe('stripMd', () => {
+  it('removes bold, code and link syntax', () => {
+    expect(stripMd('**Bold** [a link](http://x.y) `code` *it*')).toBe('Bold a link code it');
+  });
+});
+
+describe('parseWork', () => {
+  it('splits artist, title and date, dropping the page reference', () => {
+    expect(parseWork('J.A.D. Ingres, Large Odalisque, 1814 (p. 994)'))
+      .toEqual({ artist: 'J.A.D. Ingres', title: 'Large Odalisque', date: '1814' });
+  });
+
+  it('keeps commas inside the title', () => {
+    expect(parseWork('Francisco Goya, The Sleep of Reason Produces Monsters, Los Caprichos, 1796-98 (p. 982)'))
+      .toEqual({ artist: 'Francisco Goya', title: 'The Sleep of Reason Produces Monsters, Los Caprichos', date: '1796-98' });
+  });
+
+  it('handles "c." dates, trailing spaces and missing parts', () => {
+    expect(parseWork('Paul Cézanne, Still-Life with Basket of Apples, c. 1890-94 (p. 1048)').date).toBe('c. 1890-94');
+    expect(parseWork('Moses Jacob Ezekiel, Stonewall Jackson, 1909 ').date).toBe('1909');
+    expect(parseWork('Caspar David Friedrich, Monk By the Sea'))
+      .toEqual({ artist: 'Caspar David Friedrich', title: 'Monk By the Sea', date: '' });
+    expect(parseWork('Mona Lisa')).toEqual({ artist: '', title: 'Mona Lisa', date: '' });
+  });
+});
+
+describe('parseTermLine', () => {
+  it('accepts colon, spaced dash, or a bare term', () => {
+    expect(parseTermLine('Sfumato: soft blending')).toEqual({ term: 'Sfumato', def: 'soft blending' });
+    expect(parseTermLine('Contrapposto - weight on one leg')).toEqual({ term: 'Contrapposto', def: 'weight on one leg' });
+    expect(parseTermLine('Orientalism')).toEqual({ term: 'Orientalism', def: '' });
+  });
+
+  it('only splits on the first separator and ignores unspaced hyphens and commas', () => {
+    expect(parseTermLine('Term: def: more')).toEqual({ term: 'Term', def: 'def: more' });
+    expect(parseTermLine('Neo-Impressionism/Pointillism')).toEqual({ term: 'Neo-Impressionism/Pointillism', def: '' });
+    expect(parseTermLine('Salon De Refuses, 1863')).toEqual({ term: 'Salon De Refuses, 1863', def: '' });
+  });
+});
+
+describe('parseExamMarkdown', () => {
+  it('reads the title, sections (any case) and numbered lists', () => {
+    const md = [
+      '# Renaissance Midterm', '',
+      '## MUST KNOW WORKS', '',
+      '- Leonardo, Mona Lisa, 1503 (p. 1)',
+      '2. Raphael, School of Athens, 1511',
+      '',
+      '## Must Know Terms', '',
+      '- Sfumato: soft blending',
+      '* Chiaroscuro',
+      '',
+      '## Notes', '- not a term and not a work',
+    ].join('\n');
+    const parsed = parseExamMarkdown(md);
+    expect(parsed.title).toBe('Renaissance Midterm');
+    expect(parsed.works.map((w) => w.title)).toEqual(['Mona Lisa', 'School of Athens']);
+    expect(parsed.terms).toEqual([{ term: 'Sfumato', def: 'soft blending' }, { term: 'Chiaroscuro', def: '' }]);
+  });
+
+  it('ignores bullets outside a known section; only the first H1 is the title', () => {
+    const parsed = parseExamMarkdown('- stray bullet\n# First\n# Second\n## Must Know Terms\n- A: b');
+    expect(parsed.title).toBe('First');
+    expect(parsed.terms).toEqual([{ term: 'A', def: 'b' }]);
+    expect(parsed.works).toEqual([]);
+  });
+
+  it('returns empty content for empty input', () => {
+    expect(parseExamMarkdown('')).toEqual({ title: '', terms: [], works: [] });
+  });
+});
+
+describe('term lines (editor textarea format)', () => {
+  it('parses and round-trips', () => {
+    const terms = parseTermLines('a: b\n\n  c  \nd: e: f');
+    expect(terms).toEqual([
+      { term: 'a', def: 'b' },
+      { term: 'c', def: '' },
+      { term: 'd', def: 'e: f' },
+    ]);
+    expect(formatTermLines(terms)).toBe('a: b\nc: \nd: e: f');
+  });
+});
