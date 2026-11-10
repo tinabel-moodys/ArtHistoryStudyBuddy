@@ -1,4 +1,4 @@
-# ArtHistoryStudyBuddy
+# Art History Study Buddy
 
 Art history study and review app for macOS (Electron + TypeScript). Build exams from "must know" works and terms, then drill them with flashcards or multiple-choice quizzes. Scores are saved per exam.
 
@@ -31,15 +31,17 @@ This compiles the TypeScript to `build/` and launches the app.
 npm run dist
 ```
 
-This packages the app and wraps it in `dist/Art-History-Study-<version>-<arch>.dmg` for your Mac's architecture (Apple Silicon or Intel). Open the `.dmg` and drag **Art History Study** onto **Applications**.
+This packages the app and wraps it in `dist/Art-History-Study-Buddy-<version>-<arch>.dmg` for your Mac's architecture (Apple Silicon or Intel). Open the `.dmg` and drag **Art History Study Buddy** onto **Applications**.
 
-To build just the `.app` without the installer, run `npm run package`; it lands in `dist/Art History Study-darwin-<arch>/`.
+The app icon lives in `assets/` (`icon.png` is the 1024 px master, `icon.icns` is generated from it).
 
-**First launch on another Mac:** the app is only ad-hoc signed (no paid Apple Developer ID), so macOS will say it can't verify the developer. Right-click the app → **Open** → **Open**. If macOS says the app is "damaged", run `xattr -cr "/Applications/Art History Study.app"` once.
+To build just the `.app` without the installer, run `npm run package`; it lands in `dist/Art History Study Buddy-darwin-<arch>/`.
+
+**First launch on another Mac:** the app is only ad-hoc signed (no paid Apple Developer ID), so macOS will say it can't verify the developer. Right-click the app → **Open** → **Open**. If macOS says the app is "damaged", run `xattr -cr "/Applications/Art History Study Buddy.app"` once.
 
 An installer built on Apple Silicon only runs on Apple Silicon; build on an Intel Mac for an Intel installer.
 
-The installed app keeps its own saved data, separate from `npm start`, so exams made in one won't appear in the other.
+Exams and scores are saved in `~/Library/Application Support/art-history-study`. The installed app and `npm start` share that folder, so they see the same exams.
 
 ## Usage
 

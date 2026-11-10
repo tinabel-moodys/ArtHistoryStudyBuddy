@@ -7,7 +7,7 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 560,
     height: 780,
-    title: 'Art History Study',
+    title: 'Art History Study Buddy',
     webPreferences: { preload: path.join(__dirname, 'preload.js') },
   });
 
@@ -21,7 +21,11 @@ function createWindow(): void {
 }
 
 registerIpc();
-void app.whenReady().then(createWindow);
+void app.whenReady().then(() => {
+  // The packaged app gets its icon from the .icns; this covers running from source (`npm start`).
+  app.dock?.setIcon(path.join(__dirname, '..', '..', 'assets', 'icon.png'));
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

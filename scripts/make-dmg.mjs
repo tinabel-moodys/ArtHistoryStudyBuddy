@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const APP_NAME = 'Art History Study';
+const APP_NAME = 'Art History Study Buddy';
 const arch = process.arch === 'x64' ? 'x64' : process.arch;
 const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
 
