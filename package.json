@@ -2,6 +2,31 @@
   "name": "art-history-study",
   "version": "1.0.0",
   "main": "build/main/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.main.json && tsc -p tsconfig.renderer.json && node scripts/copy-assets.mjs",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "jest",
+    "test:coverage": "jest --coverage",
+    "package": "npm run build && electron-packager . \"Art History Study Buddy\" --platform=darwin --out=dist --overwrite --icon=assets/icon.icns --ignore=\"^/(ArtStudyBuddy|\\.github|dist|src|test|scripts|coverage|tsconfig.*|jest.config.cjs|eslint.config.mjs|sample-exam.md)\"",
+    "dist": "npm run package && node scripts/make-dmg.mjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "@eslint/js": "^10.0.1",
+    "@swc/core": "^1.16.22",
+    "@swc/jest": "^0.2.39",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.6.6",
+    "electron": "^42.11.16",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0",
+    "jest": "^30.5.2",
+    "jest-environment-jsdom": "^30.5.2",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.2"
+  },
   "engines": {
     "node": ">=22.13"
   }
