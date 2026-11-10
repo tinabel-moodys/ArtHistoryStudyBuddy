@@ -28,6 +28,29 @@ describe('parseWork', () => {
   });
 });
 
+describe('parseWork movement', () => {
+  it('reads an optional "(movement: ...)" and leaves it out when absent', () => {
+    expect(parseWork('Eugène Delacroix, Liberty Leading the People, 1830 (movement: Romanticism)'))
+      .toEqual({ artist: 'Eugène Delacroix', title: 'Liberty Leading the People', date: '1830', movement: 'Romanticism' });
+    expect(parseWork('Eugène Delacroix, Liberty Leading the People, 1830')).not.toHaveProperty('movement');
+  });
+
+  it('works with a page reference in either order, and is case-insensitive', () => {
+    expect(parseWork('A, B, 1800 (p. 12) (movement: Realism)')).toMatchObject({ title: 'B', date: '1800', movement: 'Realism' });
+    expect(parseWork('A, B, 1800 (Movement: Realism) (p. 12)')).toMatchObject({ title: 'B', date: '1800', movement: 'Realism' });
+  });
+
+  it('keeps a parenthetical that is part of the title', () => {
+    expect(parseWork('J.M.W. Turner, The Slave Ship (Slavers Throwing Overboard the Dead and Dying), 1840'))
+      .toEqual({ artist: 'J.M.W. Turner', title: 'The Slave Ship (Slavers Throwing Overboard the Dead and Dying)', date: '1840' });
+  });
+
+  it('flows through parseExamMarkdown', () => {
+    const parsed = parseExamMarkdown('## Must Know Works\n- Manet, Olympia, 1863 (movement: Realism)');
+    expect(parsed.works[0]).toMatchObject({ title: 'Olympia', movement: 'Realism' });
+  });
+});
+
 describe('parseTermLine', () => {
   it('accepts colon, spaced dash, or a bare term', () => {
     expect(parseTermLine('Sfumato: soft blending')).toEqual({ term: 'Sfumato', def: 'soft blending' });

@@ -6,6 +6,8 @@ export interface Work {
   artist: string;
   /** undefined = not looked up yet; '' = looked up, unknown. */
   nationality?: string;
+  /** Art movement, e.g. "Impressionism". undefined = not looked up yet; '' = unknown. */
+  movement?: string;
   date: string;
   img: string;
   src?: string;
@@ -55,12 +57,18 @@ export interface TermCard {
   choices: string[] | null;
 }
 
+/** What a multiple-choice question about a work asks for. */
+export type Question = 'artist' | 'title' | 'year' | 'movement';
+
 export interface WorkCard {
   kind: 'works' | 'pool';
+  /** Which fact `answer` and `choices` are about. */
+  question: Question;
   id: string | number;
   title: string;
   artist: string;
   nationality?: string;
+  movement?: string;
   date: string;
   img: string;
   src?: string;

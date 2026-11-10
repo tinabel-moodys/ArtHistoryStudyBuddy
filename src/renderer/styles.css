@@ -102,3 +102,8 @@ a.source { color: #9aa0ff; }
 .choice.wrong { background: #a33; }
 .correct { color: #5af08a; font-weight: bold; }
 .incorrect { color: #f05a5a; font-weight: bold; }
+
+/* Inline editor for a card's facts */
+.edit-form { text-align: left; margin-top: 1rem; padding-top: .8rem; border-top: 1px solid #3a3a42; }
+.edit-form label.field { display: block; margin: .5rem 0; font-size: .85rem; opacity: .9; }
+.edit-form input, .edit-form textarea { display: block; width: 100%; margin: .2rem 0 0; }

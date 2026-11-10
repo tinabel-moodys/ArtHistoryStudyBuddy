@@ -6,6 +6,8 @@ export interface ParsedWork {
   artist: string;
   title: string;
   date: string;
+  /** Only when the line says "(movement: ...)". */
+  movement?: string;
 }
 
 export interface ParsedExam {
@@ -20,9 +22,21 @@ export const stripMd = (s: string): string =>
     .replace(/\*/g, '')
     .trim();
 
-/** "Artist, Title, 1814 (p. 994)" -> { artist, title, date } */
+/**
+ * "Artist, Title, 1814 (p. 994)" -> { artist, title, date }.
+ * Trailing "(p. 994)" is dropped; trailing "(movement: Romanticism)" sets the movement.
+ */
 export function parseWork(line: string): ParsedWork {
-  let rest = line.replace(/\s*\(p+\.[^)]*\)\s*$/i, '').trim();
+  let rest = line.trim();
+  let movement = '';
+  for (;;) {
+    const group = /\s*\(([^()]*)\)\s*$/.exec(rest);
+    const inner = group?.[1] ?? '';
+    const movementMatch = /^movement:\s*(.+)$/i.exec(inner);
+    if (!group || !(movementMatch || /^p+\./i.test(inner))) break;
+    if (movementMatch) movement = (movementMatch[1] ?? '').trim();
+    rest = rest.slice(0, group.index).trim();
+  }
   let date = '';
   const dateMatch = /,\s*((?:c\.\s*)?\d{3,4}(?:\s*[-–]\s*\d{2,4})?)\s*$/i.exec(rest);
   if (dateMatch) {
@@ -30,9 +44,10 @@ export function parseWork(line: string): ParsedWork {
     rest = rest.slice(0, dateMatch.index).trim();
   }
   const comma = rest.indexOf(',');
-  return comma > 0
+  const work: ParsedWork = comma > 0
     ? { artist: rest.slice(0, comma).trim(), title: rest.slice(comma + 1).trim(), date }
     : { artist: '', title: rest, date };
+  return movement ? { ...work, movement } : work;
 }
 
 /** "Term: definition", "Term - definition", or bare "Term" -> { term, def } */

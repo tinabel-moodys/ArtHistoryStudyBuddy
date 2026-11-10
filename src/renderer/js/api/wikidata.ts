@@ -1,4 +1,5 @@
 // Wikidata lookups: an artist's nationality (as an adjective, e.g. "French").
+import { surnameOf } from '../util.js';
 import { getJson } from './http.js';
 
 const API = 'https://www.wikidata.org/w/api.php';
@@ -7,6 +8,7 @@ const SPACING_MS = 120;
 const RETRY_DELAY_MS = 800;
 
 interface Claim {
+  rank?: string;
   mainsnak?: { datavalue?: { value?: unknown } };
 }
 
@@ -14,6 +16,9 @@ interface Entity {
   claims?: Record<string, Claim[] | undefined>;
   labels?: Record<string, { value: string } | undefined>;
 }
+
+/** HTTP 4xx other than 429 (too many requests). */
+const isClientError = (error: unknown): boolean => error instanceof Error && /^HTTP 4(?!29)\d\d/.test(error.message);
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => { setTimeout(resolve, ms); });
 
@@ -25,14 +30,24 @@ function call<T>(params: Record<string, string>): Promise<T> {
   const run = queue.then(async () => {
     try {
       return await getJson<T>(API, request);
-    } catch {
+    } catch (error) {
+      if (isClientError(error)) throw error; // retrying a 404 can't help
       await sleep(RETRY_DELAY_MS);
       return getJson<T>(API, request);
     }
   });
   queue = run.catch(() => undefined).then(() => sleep(SPACING_MS));
+  run.catch((error: unknown) => { if (!isClientError(error)) failures++; }); // a 404 is an answer, not an outage
   return run;
 }
+
+let failures = 0;
+
+/**
+ * How many Wikidata requests have failed outright (network error, timeout, 5xx, 429) as opposed to getting an answer.
+ * Compare before and after a lookup to tell "unknown" from "couldn't ask".
+ */
+export const failureCount = (): number => failures;
 
 const valuesOf = (entity: Entity, property: string): unknown[] =>
   (entity.claims?.[property] ?? []).map((c) => c.mainsnak?.datavalue?.value);
@@ -69,15 +84,86 @@ async function demonymOf(countryId: string): Promise<string> {
   return demonym;
 }
 
-/** Nationality adjective for `name` (falls back to the country name), or '' if unknown. */
-export async function nationalityOf(name: string): Promise<string> {
+export interface ArtistInfo {
+  /** Adjective, e.g. "French"; '' if unknown. */
+  nationality: string;
+  /** Art movement, e.g. "Impressionism"; '' if unknown. */
+  movement: string;
+}
+
+/** "post-impressionism" -> "Post-Impressionism" (Wikidata labels are lower-case). */
+const toMovementCase = (label: string): string => label.replace(/(^|[\s-])(\p{L})/gu, (_m, sep: string, c: string) => sep + c.toUpperCase());
+
+/** "French Realism" -> "Realism": courses name the movement, not the country. */
+const DEMONYM_PREFIX = /^(French|German|American|British|English|Dutch|Spanish|Italian|Flemish|Russian|Danish|Swiss|Belgian|Austrian|Norwegian|Swedish|Mexican|Japanese|Chinese|Polish|Czech)\s+/i;
+const withoutNationality = (label: string): string => label.replace(DEMONYM_PREFIX, '');
+
+const movementLabels = new Map<string, string>(); // movement id -> "Impressionism"
+
+async function movementLabel(id: string): Promise<string> {
+  const cached = movementLabels.get(id);
+  if (cached !== undefined) return cached;
+  const entity = await getEntity(id, 'labels');
+  const label = toMovementCase(withoutNationality(entity?.labels?.en?.value ?? ''));
+  movementLabels.set(id, label);
+  return label;
+}
+
+/** The artist's movement (P135), preferring a claim marked "preferred" and ignoring deprecated ones. */
+function movementOf(person: Entity): { id: string } | undefined {
+  const claims = (person.claims?.P135 ?? []).filter((c) => c.rank !== 'deprecated');
+  const ordered = [...claims.filter((c) => c.rank === 'preferred'), ...claims.filter((c) => c.rank !== 'preferred')];
+  return ordered.map((c) => c.mainsnak?.datavalue?.value).find(isRef);
+}
+
+/** Nationality and art movement for `name`, from Wikidata. Unknown parts are ''. */
+export async function artistInfoOf(name: string): Promise<ArtistInfo> {
+  const info: ArtistInfo = { nationality: '', movement: '' };
   try {
     const personId = await findArtistId(name);
-    if (!personId) return '';
+    if (!personId) return info;
     const person = await getEntity(personId, 'claims');
-    const country = person ? valuesOf(person, 'P27').find(isRef) : undefined; // country of citizenship
-    return country ? await demonymOf(country.id) : '';
+    if (!person) return info;
+
+    const country = valuesOf(person, 'P27').find(isRef); // country of citizenship
+    if (country) info.nationality = await demonymOf(country.id);
+
+    const movement = movementOf(person);
+    if (movement) info.movement = await movementLabel(movement.id);
+  } catch {
+    /* keep whatever was found so far */
+  }
+  return info;
+}
+
+const WORK_DESCRIPTION = /painting|sculpture|drawing|print|etching|lithograph|photograph|artwork|installation|mural/i;
+
+/**
+ * The movement of one artwork, from the artwork's own Wikidata item (more precise than the artist's:
+ * Manet's *Olympia* is Realism even though Manet is usually filed under Impressionism). '' if not found.
+ */
+export async function workMovementOf(title: string, artist: string): Promise<string> {
+  try {
+    const surname = surnameOf(artist);
+    const cleanTitle = title.replace(/\(.*?\)/g, ' ').trim();
+    if (!surname || !cleanTitle) return '';
+    const r = await call<{ search?: { id: string; description?: string }[] }>({
+      action: 'wbsearchentities', search: cleanTitle, language: 'en', type: 'item', limit: '10',
+    });
+    const hit = (r.search ?? []).find((x) => {
+      const description = (x.description ?? '').toLowerCase();
+      return WORK_DESCRIPTION.test(description) && description.includes(surname);
+    });
+    if (!hit) return '';
+    const work = await getEntity(hit.id, 'claims');
+    const movement = work ? movementOf(work) : undefined;
+    return movement ? await movementLabel(movement.id) : '';
   } catch {
     return '';
   }
+}
+
+/** Nationality adjective for `name` (falls back to the country name), or '' if unknown. */
+export async function nationalityOf(name: string): Promise<string> {
+  return (await artistInfoOf(name)).nationality;
 }

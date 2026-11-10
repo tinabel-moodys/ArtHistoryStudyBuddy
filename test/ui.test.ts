@@ -33,13 +33,17 @@ const choose = (selector: string, value: string): void => {
 };
 const sleep = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 async function waitFor(condition: () => boolean, what = 'condition'): Promise<void> {
-  for (let i = 0; i < 400; i++) {
+  for (let i = 0; i < 1000; i++) { // up to 10 s: generous, because a loaded CI machine can be slow
     if (condition()) return;
     await sleep(10);
   }
   throw new Error(`Timed out waiting for ${what}`);
 }
-const settle = (): Promise<void> => sleep(20);
+/** Waits until the study card has finished loading (a fixed sleep is too short on a busy machine). */
+const settle = async (): Promise<void> => {
+  await sleep(0);
+  await waitFor(() => !$('#card').textContent.includes('Loading...'), 'the card to load');
+};
 
 const view = (): string => (['home', 'editor', 'study'].find((id) => !$(`#${id}`).hidden) ?? 'none');
 
@@ -48,9 +52,9 @@ const TERM_NAMES = ['Realism', 'Sublime', 'Japonisme', 'Primitivism'];
 const termsOf = (...names: string[]): Term[] => names.map((n, i) => ({ term: n, def: `${n} was a movement (code ${i}).`, src: 'https://en.wikipedia.org/wiki/x' }));
 const termInPrompt = (prompt: string): string => TERM_NAMES[Number(/code (\d+)/.exec(prompt)?.[1])] ?? '';
 const works: Work[] = [
-  { id: 1, title: 'Third of May', artist: 'Francisco Goya', nationality: 'Spanish', date: '1814', img: 'img-goya.png', src: 'https://commons/goya' },
-  { id: 2, title: 'Olympia', artist: 'Edouard Manet', nationality: 'French', date: '1863', img: 'img-manet.png', src: 'https://commons/manet' },
-  { id: 3, title: 'The Hay Wain', artist: 'John Constable', nationality: 'British', date: '1821', img: 'img-constable.png', src: '' },
+  { id: 1, title: 'Third of May', artist: 'Francisco Goya', nationality: 'Spanish', movement: 'Romanticism', date: '1814', img: 'img-goya.png', src: 'https://commons/goya' },
+  { id: 2, title: 'Olympia', artist: 'Edouard Manet', nationality: 'French', movement: 'Realism', date: '1863', img: 'img-manet.png', src: 'https://commons/manet' },
+  { id: 3, title: 'The Hay Wain', artist: 'John Constable', nationality: 'British', movement: 'Romanticism', date: '1821', img: 'img-constable.png', src: '' },
 ];
 const seed = (over: Partial<Exam> = {}): Exam => {
   const exam = store.makeExam({ name: 'Nineteenth Century', works, terms: termsOf(...TERM_NAMES), ...over });
@@ -82,6 +86,7 @@ beforeEach(() => {
   store.getExams().splice(0);
   localStorage.clear();
   stubFetch([['/departments', { departments: [{ departmentId: 11, displayName: 'European Paintings' }] }]]);
+  ($('#mode') as HTMLSelectElement).value = 'flash'; // the dropdown keeps its value between tests
   go('home');
 });
 
@@ -295,54 +300,336 @@ describe('studying terms', () => {
 });
 
 describe('studying works', () => {
-  const answerFor = (): Work => {
+  const QUESTION_TEXT = {
+    artist: 'Who is the artist?',
+    title: 'What is the title of this work?',
+    year: 'When was this made?',
+    movement: 'What art movement is this?',
+  } as const;
+  type Q = keyof typeof QUESTION_TEXT;
+
+  const workOnScreen = (): Work => {
     const src = $('#card img').getAttribute('src');
     const w = works.find((x) => x.img === src);
     if (!w) throw new Error(`unknown image ${src}`);
     return w;
   };
+  const questionOnScreen = (): Q => {
+    const q = (Object.keys(QUESTION_TEXT) as Q[]).find((k) => text('#card').includes(QUESTION_TEXT[k]));
+    if (!q) throw new Error(`no known question in: ${text('#card')}`);
+    return q;
+  };
+  const factOf = (w: Work, q: Q): string => ({ artist: w.artist, title: w.title, year: w.date, movement: w.movement ?? '' })[q];
 
-  it('quiz: pick the artist; the answer shows nationality, title, date and a source link', async () => {
+  it('quiz asks about the artist, title, year and movement, and grades each correctly', async () => {
     seed({ terms: [] });
     await study('works', 'quiz');
-    const answer = answerFor();
-    expect(all('#choices button')).toHaveLength(4);
-    click(all('#choices button').find((b) => b.textContent === answer.artist) ?? $('#choices button'));
-    expect(text('#feedback')).toContain(`Correct! ${answer.artist} (${answer.nationality ?? ''}) — ${answer.title}, ${answer.date}`);
-    expect(text('#score')).toContain('Session: 1 / 1');
-    if (answer.src) expect($('#feedback a.source').getAttribute('href')).toBe(answer.src);
+    const seen = new Set<Q>();
+    for (let round = 1; round <= 80; round++) {
+      const work = workOnScreen();
+      const question = questionOnScreen();
+      const answer = factOf(work, question);
+      seen.add(question);
+
+      const choices = all('#choices button');
+      expect(choices).toHaveLength(4);
+      expect(choices.map((b) => b.textContent)).toContain(answer);
+      click(choices.find((b) => b.textContent === answer) ?? choices[0]!);
+
+      expect(all('#choices .right')).toHaveLength(1);
+      expect(text('#feedback')).toContain('Correct!');
+      expect(text('#feedback')).toContain(answer);
+      expect(text('#score')).toContain(`Session: ${round} / ${round}`);
+      click(act('study.next'));
+      await settle();
+    }
+    expect([...seen].sort()).toEqual(['artist', 'movement', 'title', 'year']);
   });
 
-  it('flashcard: the revealed answer includes nationality', async () => {
+  it('the answer screen shows the full citation: artist and nationality, title, date, movement', async () => {
+    seed({ terms: [] });
+    await study('works', 'quiz');
+    const work = workOnScreen();
+    const choices = all('#choices button');
+    click(choices.find((b) => b.textContent === factOf(work, questionOnScreen())) ?? choices[0]!);
+    const feedback = text('#feedback');
+    for (const part of [work.artist, `(${work.nationality ?? ''})`, work.title, work.date, work.movement ?? '']) {
+      expect(feedback).toContain(part);
+    }
+    if (work.src) expect($('#feedback a.source').getAttribute('href')).toBe(work.src);
+  });
+
+  it('a wrong answer is marked, and the right one is shown', async () => {
+    seed({ terms: [] });
+    await study('works', 'quiz');
+    const work = workOnScreen();
+    const answer = factOf(work, questionOnScreen());
+    const wrong = all('#choices button').find((b) => b.textContent !== answer)!;
+    click(wrong);
+    expect(wrong.classList.contains('wrong')).toBe(true);
+    expect(all('#choices .right')[0]?.textContent).toBe(answer);
+    expect(text('#feedback')).toMatch(/^Answer: /);
+    expect(text('#score')).toContain('Session: 0 / 1');
+  });
+
+  it('never asks for the title of a work shown without an image', async () => {
+    seed({ terms: [], works: [{ id: 9, title: 'Lost Painting', artist: 'Unknown Hand', nationality: '', movement: 'Baroque', date: '1700', img: '' }] });
+    await study('works', 'quiz');
+    for (let i = 0; i < 40; i++) {
+      expect(text('#card')).not.toContain(QUESTION_TEXT.title);
+      click(act('study.next'));
+      await settle();
+    }
+  });
+
+  it('flashcard: the revealed answer includes nationality and movement', async () => {
     seed({ terms: [] });
     await study('works', 'flash');
-    const answer = answerFor();
+    const work = workOnScreen();
     click(act('study.reveal'));
-    expect(text('#answer')).toContain(`${answer.artist} (${answer.nationality ?? ''})`);
+    expect(text('#answer')).toContain(`${work.artist} (${work.nationality ?? ''})`);
+    expect(text('#answer')).toContain(work.movement ?? '');
     click(act('study.grade', 1)); // Missed
     expect(text('#score')).toContain('Session: 0 / 1');
   });
 
   it('a work without an image is shown by title', async () => {
-    seed({ terms: [], works: [{ id: 9, title: 'Lost Painting', artist: 'Unknown Hand', nationality: '', date: '1700', img: '' }] });
+    seed({ terms: [], works: [{ id: 9, title: 'Lost Painting', artist: 'Unknown Hand', nationality: '', movement: '', date: '1700', img: '' }] });
     await study('works', 'flash');
     expect(text('#card')).toContain('Lost Painting');
     expect(text('#card')).toContain('(no image)');
   });
 
-  it('looks up a missing nationality once and saves it (exams made before nationality existed)', async () => {
+  it('looks up a missing nationality and movement once and saves them (exams made before they existed)', async () => {
     seed({ terms: [], works: [{ id: 7, title: 'Olympia', artist: 'Legacy Painter', date: '1863', img: 'x.png' }] });
     stubFetch([
       [/search=Legacy\+Painter&/, { search: [{ id: 'Q711', description: 'painter' }] }],
-      [/ids=Q711\b/, { entities: { Q711: { claims: { P27: [{ mainsnak: { datavalue: { value: { id: 'Q811' } } } }] } } } }],
+      [/ids=Q711\b/, { entities: { Q711: { claims: {
+        P27: [{ mainsnak: { datavalue: { value: { id: 'Q811' } } } }],
+        P135: [{ rank: 'normal', mainsnak: { datavalue: { value: { id: 'Q911' } } } }],
+      } } } }],
       [/ids=Q811\b/, { entities: { Q811: { claims: { P1549: [{ mainsnak: { datavalue: { value: { text: 'Legacyan', language: 'en' } } } }] }, labels: {} } } }],
+      [/ids=Q911\b/, { entities: { Q911: { labels: { en: { value: 'post-impressionism' } } } } }],
     ]);
     click(act('home.study'));
     await waitFor(() => all('[data-action="study.reveal"]').length > 0, 'card');
     click(act('study.reveal'));
     expect(text('#answer')).toContain('Legacy Painter (Legacyan)');
-    expect(store.getExams()[0]?.works[0]?.nationality).toBe('Legacyan');
-    expect((JSON.parse(localStorage.getItem('exams') ?? '[]') as Exam[])[0]?.works[0]?.nationality).toBe('Legacyan');
+    expect(text('#answer')).toContain('Post-Impressionism');
+    const saved = (JSON.parse(localStorage.getItem('exams') ?? '[]') as Exam[])[0]?.works[0];
+    expect(saved).toMatchObject({ nationality: 'Legacyan', movement: 'Post-Impressionism' });
+  });
+
+  it('fills in the other works of an exam in the background while you study', async () => {
+    seed({ terms: [], works: [
+      { id: 1, title: 'Seen First', artist: 'Known Painter', nationality: 'French', movement: 'Realism', date: '1860', img: 'a.png' },
+      { id: 2, title: 'Not On Screen', artist: 'Background Painter', date: '1870', img: 'b.png' },
+    ] });
+    stubFetch([
+      [/search=Background\+Painter&/, { search: [{ id: 'Q721', description: 'painter' }] }],
+      [/ids=Q721\b/, { entities: { Q721: { claims: {
+        P27: [{ mainsnak: { datavalue: { value: { id: 'Q821' } } } }],
+        P135: [{ rank: 'normal', mainsnak: { datavalue: { value: { id: 'Q921' } } } }],
+      } } } }],
+      [/ids=Q821\b/, { entities: { Q821: { claims: { P1549: [{ mainsnak: { datavalue: { value: { text: 'Backgroundish', language: 'en' } } } }] }, labels: {} } } }],
+      [/ids=Q921\b/, { entities: { Q921: { labels: { en: { value: 'symbolism' } } } } }],
+    ]);
+    click(act('home.study'));
+    await waitFor(() => store.getExams()[0]?.works[1]?.movement === 'Symbolism', 'background fill-in');
+    const saved = (JSON.parse(localStorage.getItem('exams') ?? '[]') as Exam[])[0]?.works[1];
+    expect(saved).toMatchObject({ nationality: 'Backgroundish', movement: 'Symbolism' });
+  });
+});
+
+describe('editing details', () => {
+  const manet = (id: number, title: string, img: string): Work =>
+    ({ id, title, artist: 'Edouard Manet', nationality: 'French', movement: 'Impressionism', date: '1863', img, src: '' });
+  const input = (id: string): HTMLInputElement => $(`#${id}`) as HTMLInputElement;
+  const savedWorks = (): Work[] => (JSON.parse(localStorage.getItem('exams') ?? '[]') as Exam[])[0]?.works ?? [];
+
+  async function revealWork(): Promise<void> {
+    await study('works', 'flash');
+    click(act('study.reveal'));
+  }
+
+  it('offers editing only after the answer is shown', async () => {
+    seed({ terms: [], works: [manet(1, 'Olympia', 'o.png')] });
+    await study('works', 'flash');
+    expect(all('[data-action="study.edit"]')).toHaveLength(0);
+    click(act('study.reveal'));
+    expect(all('[data-action="study.edit"]')).toHaveLength(1);
+  });
+
+  it('opens a form pre-filled with the work\'s details', async () => {
+    seed({ terms: [], works: [manet(1, 'Olympia', 'o.png')] });
+    await revealWork();
+    click(act('study.edit'));
+    expect(input('editArtist').value).toBe('Edouard Manet');
+    expect(input('editNationality').value).toBe('French');
+    expect(input('editTitle').value).toBe('Olympia');
+    expect(input('editDate').value).toBe('1863');
+    expect(input('editMovement').value).toBe('Impressionism');
+    expect(all('[data-action="study.edit"]')).toHaveLength(0); // the button gives way to the form
+  });
+
+  it('saves a corrected movement, shows it straight away and persists it', async () => {
+    seed({ terms: [], works: [manet(1, 'Olympia', 'o.png')] });
+    await revealWork();
+    expect(text('#answer')).toContain('Impressionism');
+    click(act('study.edit'));
+    setValue('#editMovement', 'Realism');
+    click(act('study.saveEdit'));
+
+    expect(text('#answer')).toContain('Realism');
+    expect(text('#answer')).not.toContain('Impressionism');
+    expect(all('.edit-form')).toHaveLength(0);
+    expect(all('[data-action="study.edit"]')).toHaveLength(1); // can edit again
+    expect(store.getExams()[0]?.works[0]?.movement).toBe('Realism');
+    expect(savedWorks()[0]?.movement).toBe('Realism');
+  });
+
+  it('can correct every detail of a work', async () => {
+    seed({ terms: [], works: [manet(1, 'Olympia', 'o.png')] });
+    await revealWork();
+    click(act('study.edit'));
+    setValue('#editArtist', 'Édouard Manet');
+    setValue('#editNationality', 'Parisian');
+    setValue('#editTitle', 'Olympia (1863)');
+    setValue('#editDate', '1863-65');
+    setValue('#editMovement', 'Realism');
+    click(act('study.saveEdit'));
+    expect(savedWorks()[0]).toMatchObject({ artist: 'Édouard Manet', nationality: 'Parisian', title: 'Olympia (1863)', date: '1863-65', movement: 'Realism' });
+    expect(text('#answer')).toContain('Édouard Manet (Parisian)');
+    expect(text('#answer')).toContain('Olympia (1863), 1863-65');
+  });
+
+  it("a corrected nationality also applies to the artist's other works, and only theirs", async () => {
+    const original: Work[] = [
+      manet(1, 'Olympia', 'o.png'), manet(2, 'The Fifer', 'f.png'),
+      { ...manet(3, 'Other', 'x.png'), artist: 'Someone Else', nationality: 'Dutch' },
+    ];
+    seed({ terms: [], works: original.map((w) => ({ ...w })) });
+    await revealWork();
+    const shown = original.find((w) => w.img === $('#card img').getAttribute('src'))!; // whichever card came up
+    click(act('study.edit'));
+    setValue('#editNationality', 'Edited');
+    click(act('study.saveEdit'));
+    for (const w of savedWorks()) {
+      const before = original.find((o) => o.id === w.id)!;
+      expect(w.nationality).toBe(before.artist === shown.artist ? 'Edited' : before.nationality);
+    }
+  });
+
+  it('cancel leaves everything unchanged', async () => {
+    seed({ terms: [], works: [manet(1, 'Olympia', 'o.png')] });
+    await revealWork();
+    click(act('study.edit'));
+    setValue('#editMovement', 'Cubism');
+    click(act('study.cancelEdit'));
+    expect(all('.edit-form')).toHaveLength(0);
+    expect(store.getExams()[0]?.works[0]?.movement).toBe('Impressionism');
+    expect(text('#answer')).toContain('Impressionism');
+    expect(all('[data-action="study.edit"]')).toHaveLength(1);
+  });
+
+  it('will not save a work without a title', async () => {
+    seed({ terms: [], works: [manet(1, 'Olympia', 'o.png')] });
+    await revealWork();
+    click(act('study.edit'));
+    setValue('#editTitle', '   ');
+    setValue('#editMovement', 'Realism');
+    click(act('study.saveEdit'));
+    expect(text('#editMsg')).toBe('A work needs a title.');
+    expect(all('.edit-form')).toHaveLength(1);
+    expect(store.getExams()[0]?.works[0]).toMatchObject({ title: 'Olympia', movement: 'Impressionism' });
+  });
+
+  it('an empty field means "unknown": the movement is cleared and no longer asked about', async () => {
+    seed({ terms: [], works: [manet(1, 'Olympia', 'o.png')] });
+    await revealWork();
+    click(act('study.edit'));
+    setValue('#editMovement', '');
+    click(act('study.saveEdit'));
+    expect(store.getExams()[0]?.works[0]?.movement).toBe(''); // "" = looked at, unknown: not refilled
+    click(act('study.back'));
+    await study('works', 'quiz');
+    for (let i = 0; i < 40; i++) {
+      expect(text('#card')).not.toContain('What art movement is this?');
+      click(act('study.next'));
+      await settle();
+    }
+  });
+
+  it('after a quiz answer, the edit redraws the feedback and keeps it marked right or wrong', async () => {
+    seed({ terms: [], works: [{ ...manet(1, 'Olympia', 'o.png'), date: '' }] }); // artist, title and movement can be asked
+    await study('works', 'quiz');
+    const question = text('#card');
+    const wrongButton = all('#choices button').find((b) => b.textContent !== (question.includes('artist') ? 'Edouard Manet' : question.includes('title') ? 'Olympia' : 'Impressionism'))!;
+    click(wrongButton);
+    expect($('#feedback').className).toBe('incorrect');
+    click(act('study.edit'));
+    setValue('#editNationality', 'Franco-Parisian');
+    click(act('study.saveEdit'));
+    expect($('#feedback').className).toBe('incorrect');
+    expect(text('#feedback')).toContain('Franco-Parisian');
+    expect(text('#score')).toContain('Session: 0 / 1'); // editing does not change the score
+  });
+
+  it('edits a term: its name and definition', async () => {
+    seed({ works: [], terms: [{ term: 'Sublime', def: 'A wrong definition.', src: 'https://en.wikipedia.org/wiki/Sublime' }] });
+    await study('terms', 'flash');
+    click(act('study.reveal'));
+    click(act('study.edit'));
+    expect(input('editTerm').value).toBe('Sublime');
+    expect(($('#editDef') as HTMLTextAreaElement).value).toBe('A wrong definition.');
+    setValue('#editTerm', 'The Sublime');
+    ($('#editDef') as HTMLTextAreaElement).value = 'Awe before overwhelming nature.';
+    click(act('study.saveEdit'));
+    expect(text('#answer')).toContain('Awe before overwhelming nature.');
+    expect(store.getExams()[0]?.terms[0]).toMatchObject({ term: 'The Sublime', def: 'Awe before overwhelming nature.', src: 'https://en.wikipedia.org/wiki/Sublime' });
+    expect((JSON.parse(localStorage.getItem('exams') ?? '[]') as Exam[])[0]?.terms[0]?.term).toBe('The Sublime');
+  });
+
+  it('will not save a term without a name', async () => {
+    seed({ works: [], terms: [{ term: 'Sublime', def: 'x' }] });
+    await study('terms', 'flash');
+    click(act('study.reveal'));
+    click(act('study.edit'));
+    setValue('#editTerm', '');
+    click(act('study.saveEdit'));
+    expect(text('#editMsg')).toBe('A term needs a name.');
+    expect(store.getExams()[0]?.terms[0]?.term).toBe('Sublime');
+  });
+
+  it('a quiz answer on a term offers editing too', async () => {
+    seed({ works: [], terms: termsOf(...TERM_NAMES) });
+    await study('terms', 'quiz');
+    click(all('#choices button')[0]!);
+    expect(all('[data-action="study.edit"]')).toHaveLength(1);
+  });
+
+  it('is not offered for random Met art, which is not saved in the exam', async () => {
+    seed({ works: [], terms: [], filter: { deptId: '', from: '', to: '', q: 'ui-pool-edit' } });
+    stubFetch([
+      ['/objects/3', { objectID: 3, title: 'Pool Landscape', artistDisplayName: 'Pool Painter', artistNationality: 'Dutch', primaryImageSmall: 'pool.jpg', objectDate: '1650', objectURL: 'https://met/3' }],
+      ['/search', { objectIDs: [3] }],
+    ]);
+    click(act('home.study'));
+    await waitFor(() => all('[data-action="study.reveal"]').length > 0, 'pool card');
+    click(act('study.reveal'));
+    expect(all('[data-action="study.edit"]')).toHaveLength(0);
+  });
+
+  it('keeps the correction on later cards of the same work', async () => {
+    seed({ terms: [], works: [manet(1, 'Olympia', 'o.png')] });
+    await revealWork();
+    click(act('study.edit'));
+    setValue('#editMovement', 'Realism');
+    click(act('study.saveEdit'));
+    click(act('study.next'));
+    await settle();
+    click(act('study.reveal'));
+    expect(text('#answer')).toContain('Realism');
   });
 });
 

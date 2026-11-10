@@ -17,6 +17,9 @@ function createWindow(): void {
     return { action: 'deny' };
   });
 
+  // The app is a single page: never let a stray link or redirect navigate the window away.
+  win.webContents.on('will-navigate', (event) => { event.preventDefault(); });
+
   void win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 }
 

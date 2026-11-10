@@ -1,7 +1,7 @@
 import { findImage } from '../src/renderer/js/api/commons.js';
 import { getJson } from '../src/renderer/js/api/http.js';
 import * as met from '../src/renderer/js/api/met.js';
-import { nationalityOf } from '../src/renderer/js/api/wikidata.js';
+import { artistInfoOf, nationalityOf, workMovementOf } from '../src/renderer/js/api/wikidata.js';
 import { define } from '../src/renderer/js/api/wikipedia.js';
 import { restoreFetch, stubFetch } from './helpers/fakeFetch.js';
 
@@ -165,5 +165,146 @@ describe('Wikidata', () => {
 
     stubFetch([['wbsearchentities', new Error('down')]]);
     expect(await nationalityOf('Always Down')).toBe('');
+  });
+});
+
+describe('Wikidata artist info (movement)', () => {
+  type Rank = 'preferred' | 'normal' | 'deprecated';
+  const movementClaim = (id: string, rank: Rank = 'normal'): object => ({ rank, mainsnak: { datavalue: { value: { id } } } });
+
+  /** Routes for one artist with the given movements; each movement id resolves to its label. */
+  function artistWith(opts: { person: string; country?: string; movements: { id: string; label: string; rank?: Rank }[] }): Parameters<typeof stubFetch>[0] {
+    const claims: Record<string, unknown[]> = {};
+    if (opts.country) claims.P27 = [{ mainsnak: { datavalue: { value: { id: opts.country } } } }];
+    claims.P135 = opts.movements.map((m) => movementClaim(m.id, m.rank));
+    return [
+      ['wbsearchentities', { search: [{ id: opts.person, description: 'French painter' }] }],
+      [new RegExp(`ids=${opts.person}\\b`), { entities: { [opts.person]: { claims } } }],
+      ...(opts.country ? [[new RegExp(`ids=${opts.country}\\b`), { entities: { [opts.country]: { claims: {}, labels: { en: { value: 'Testland' } } } } }] as [RegExp, unknown]] : []),
+      ...opts.movements.map((m): [RegExp, unknown] => [new RegExp(`ids=${m.id}\\b`), { entities: { [m.id]: { labels: { en: { value: m.label } } } } }]),
+    ];
+  }
+
+  it('returns nationality and art movement together', async () => {
+    stubFetch(artistWith({ person: 'Q3001', country: 'Q3101', movements: [{ id: 'Q3201', label: 'impressionism' }] }));
+    expect(await artistInfoOf('Info Painter A')).toEqual({ nationality: 'Testland', movement: 'Impressionism' });
+  });
+
+  it('capitalises each word and hyphenated part of the label', async () => {
+    stubFetch(artistWith({ person: 'Q3002', movements: [{ id: 'Q3202', label: 'post-impressionism' }] }));
+    expect((await artistInfoOf('Info Painter B')).movement).toBe('Post-Impressionism');
+    stubFetch(artistWith({ person: 'Q3003', movements: [{ id: 'Q3203', label: 'art nouveau' }] }));
+    expect((await artistInfoOf('Info Painter C')).movement).toBe('Art Nouveau');
+  });
+
+  it('prefers a claim ranked "preferred", then the first normal one, and ignores deprecated ones', async () => {
+    stubFetch(artistWith({ person: 'Q3004', movements: [
+      { id: 'Q3204', label: 'realism' }, { id: 'Q3205', label: 'impressionism', rank: 'preferred' }, { id: 'Q3206', label: 'cubism', rank: 'deprecated' },
+    ] }));
+    expect((await artistInfoOf('Info Painter D')).movement).toBe('Impressionism');
+
+    stubFetch(artistWith({ person: 'Q3005', movements: [{ id: 'Q3207', label: 'cubism', rank: 'deprecated' }, { id: 'Q3208', label: 'realism' }] }));
+    expect((await artistInfoOf('Info Painter E')).movement).toBe('Realism');
+
+    stubFetch(artistWith({ person: 'Q3006', movements: [{ id: 'Q3209', label: 'cubism', rank: 'deprecated' }] }));
+    expect((await artistInfoOf('Info Painter F')).movement).toBe('');
+  });
+
+  it('leaves movement empty when Wikidata lists none, and nationalityOf still works', async () => {
+    stubFetch(artistWith({ person: 'Q3007', country: 'Q3102', movements: [] }));
+    expect(await artistInfoOf('Info Painter G')).toEqual({ nationality: 'Testland', movement: '' });
+    stubFetch(artistWith({ person: 'Q3008', country: 'Q3103', movements: [{ id: 'Q3210', label: 'realism' }] }));
+    expect(await nationalityOf('Info Painter H')).toBe('Testland');
+  });
+
+  it('keeps the nationality when the movement lookup fails', async () => {
+    stubFetch([
+      ...artistWith({ person: 'Q3009', country: 'Q3104', movements: [{ id: 'Q3211', label: 'realism' }] }).filter(([m]) => !String(m).includes('Q3211')),
+      [/ids=Q3211\b/, new Error('down')],
+    ]);
+    expect(await artistInfoOf('Info Painter I')).toEqual({ nationality: 'Testland', movement: '' });
+  });
+
+  it('returns empty info for an unknown artist', async () => {
+    stubFetch([['wbsearchentities', { search: [] }]]);
+    expect(await artistInfoOf('Nobody At All')).toEqual({ nationality: '', movement: '' });
+  });
+});
+
+describe('Wikidata work movement', () => {
+  /** A search that finds items with the given descriptions, and entities with the given movement claim. */
+  function workRoutes(opts: { search: { id: string; description: string }[]; entity?: { id: string; movementId?: string; rank?: string }; labels?: Record<string, string> }): Parameters<typeof stubFetch>[0] {
+    const routes: Parameters<typeof stubFetch>[0] = [['wbsearchentities', { search: opts.search }]];
+    if (opts.entity) {
+      const { id, movementId, rank = 'normal' } = opts.entity;
+      const claims = movementId ? { P135: [{ rank, mainsnak: { datavalue: { value: { id: movementId } } } }] } : {};
+      routes.push([new RegExp(`ids=${id}\\b`), { entities: { [id]: { claims } } }]);
+    }
+    for (const [id, label] of Object.entries(opts.labels ?? {})) {
+      routes.push([new RegExp(`ids=${id}\\b`), { entities: { [id]: { labels: { en: { value: label } } } } }]);
+    }
+    return routes;
+  }
+
+  it("reads the movement from the artwork's own item", async () => {
+    stubFetch(workRoutes({
+      search: [{ id: 'Q4001', description: 'film' }, { id: 'Q4002', description: 'painting by Édouard Manet' }],
+      entity: { id: 'Q4002', movementId: 'Q4101' }, labels: { Q4101: 'realism' },
+    }));
+    expect(await workMovementOf('Luncheon on the Grass', 'Edouard Manet')).toBe('Realism');
+  });
+
+  it('requires the description to be an artwork by that artist', async () => {
+    const calls = stubFetch(workRoutes({ search: [{ id: 'Q4003', description: 'painting by John Smith' }, { id: 'Q4004', description: 'novel by Édouard Manet' }] }));
+    expect(await workMovementOf('Olympia', 'Édouard Manet')).toBe('');
+    expect(calls.some((c) => /ids=Q400[34]/.test(c))).toBe(false);
+  });
+
+  it('returns "" when the artwork has no movement, or the search fails', async () => {
+    stubFetch(workRoutes({ search: [{ id: 'Q4005', description: 'painting by Edgar Degas' }], entity: { id: 'Q4005' } }));
+    expect(await workMovementOf('Some Dancers', 'Edgar Degas')).toBe('');
+    stubFetch([['wbsearchentities', new Error('down')]]);
+    expect(await workMovementOf('Some Dancers', 'Edgar Degas')).toBe('');
+    expect(await workMovementOf('', 'Edgar Degas')).toBe('');
+    expect(await workMovementOf('Some Dancers', '')).toBe('');
+  });
+
+  it('ignores a parenthetical subtitle when searching', async () => {
+    const calls = stubFetch(workRoutes({ search: [] }));
+    await workMovementOf('The Slave Ship (Slavers Throwing Overboard the Dead and Dying)', 'J.M.W. Turner');
+    expect(calls[0]).toContain('search=The+Slave+Ship&');
+  });
+
+  it('drops a nationality prefix from movement labels', async () => {
+    stubFetch(workRoutes({
+      search: [{ id: 'Q4006', description: 'painting by Gustave Courbet' }],
+      entity: { id: 'Q4006', movementId: 'Q4106' }, labels: { Q4106: 'French realism' },
+    }));
+    expect(await workMovementOf('The Stone Breakers', 'Gustave Courbet')).toBe('Realism');
+    stubFetch(workRoutes({
+      search: [{ id: 'Q4007', description: 'painting by Caspar David Friedrich' }],
+      entity: { id: 'Q4007', movementId: 'Q4107' }, labels: { Q4107: 'german romanticism' },
+    }));
+    expect(await workMovementOf('Monk by the Sea', 'Caspar David Friedrich')).toBe('Romanticism');
+  });
+
+  it('keeps movements that merely start with a country-like word out of the strip list', async () => {
+    stubFetch(workRoutes({
+      search: [{ id: 'Q4008', description: 'painting by Thomas Cole' }],
+      entity: { id: 'Q4008', movementId: 'Q4108' }, labels: { Q4108: 'Hudson River School' },
+    }));
+    expect(await workMovementOf('The Oxbow', 'Thomas Cole')).toBe('Hudson River School');
+  });
+});
+
+describe('Wikidata request retries', () => {
+  it('does not retry a 404 (it cannot succeed), but does retry a server error', async () => {
+    const missing = stubFetch([]); // every URL is a 404
+    expect(await nationalityOf('Four Oh Four')).toBe('');
+    expect(missing.filter((c) => c.includes('wbsearchentities'))).toHaveLength(1);
+
+    const broken = stubFetch([['wbsearchentities', new Error('server error')]]);
+    expect(await nationalityOf('Five Hundred')).toBe('');
+    expect(broken.filter((c) => c.includes('wbsearchentities'))).toHaveLength(2);
   });
 });

@@ -52,7 +52,10 @@ Exams and scores are saved in `~/Library/Application Support/art-history-study`.
    - **Random art pool (optional):** pull random Met art by department and year range.
 3. **Save Exam**, then **Study**. Choose Flashcard or Quiz, and Works, Terms, or mixed.
    - Flashcards: reveal the answer, then mark **Got it** or **Missed**.
-   - Quizzes: pick from four choices. In term quizzes the term is blanked out of its own definition.
+   - Quizzes: pick from four choices.
+     - **Works** are asked about at random: the **artist**, the **title**, the **year** and the **art movement** (Impressionism, Realism, …). A question is only asked when the app knows the answer, so a work with no movement never gets a movement question.
+     - **Terms** show the definition with the term blanked out of it.
+   - After you answer (or reveal), **Edit details** lets you correct that work's artist, nationality, title, date and movement, or a term's name and definition. Edits are saved to the exam. A corrected nationality also applies to that artist's other works.
 
 Use ↺ on the home screen to reset an exam's scores.
 
@@ -74,7 +77,12 @@ Type a file path (or use **Browse…**) in the exam editor. See [`sample-exam.md
 - Works get images from Wikimedia Commons, then the Met. Some may have no image.
 - Terms without a definition are auto-filled from Wikipedia. Review them, since they can be generic or wrong.
 - Every work and term links to its source.
-- Each artist's nationality (e.g. "French") comes from the Met record or Wikidata and shows with the answer. Exams saved before this existed fill it in the first time a work comes up. Check it for historical cases: Wikidata may say "Prussian" where your course says "German".
+- Each artist's nationality (e.g. "French") and each work's art movement come from Wikidata (the Met record, for nationality, when searching the Met). The movement is taken from the artwork's own Wikidata entry when it has one, otherwise from the artist's. Exams saved before these existed are filled in as you study.
+- **Check them.** They are best guesses and sometimes differ from your course (Wikidata may say "Prussian" where your course says "German", or file a Manet under "Impressionism" when you need "Realism"). Fix any of them with **Edit details**, or state the movement in your markdown so it's right from the start:
+
+  ```md
+  - Édouard Manet, Olympia, 1863 (p. 1016) (movement: Realism)
+  ```
 
 ## Development
 
@@ -113,7 +121,8 @@ src/
       store.ts         exam persistence and score keeping (localStorage)
       markdown.ts      pure parsing of markdown and term text
       textMask.ts      pure: hides a term inside its definition
-      services/        multi-step workflows: import, image lookup, nationality, random art
+      years.ts         pure: find the year in a date, make plausible wrong dates
+      services/        multi-step workflows: import, image lookup, artist/work info, enrichment, random art
       api/             one client per data source: Met, Wikimedia Commons, Wikipedia, Wikidata
       data/            static data
       types.ts, util.ts

@@ -4,7 +4,7 @@ import { define } from '../api/wikipedia.js';
 import { parseExamMarkdown } from '../markdown.js';
 import type { Term, Work } from '../types.js';
 import { findWorkImage } from './imageFinder.js';
-import { lookupNationality } from './nationality.js';
+import { isComplete, lookupWorkInfo } from './workInfo.js';
 
 export interface ImportedExam {
   title: string;
@@ -32,9 +32,14 @@ export async function importExam(text: string, onProgress: (message: string) => 
   const noImage: string[] = [];
   for (const [i, w] of parsed.works.entries()) {
     onProgress(`Looking up work ${i + 1}/${parsed.works.length}...`);
-    const [{ img, src }, nationality] = await Promise.all([findWorkImage(w), lookupNationality(w.artist)]);
+    const [{ img, src }, info] = await Promise.all([findWorkImage(w), lookupWorkInfo(w)]);
     if (!img) noImage.push(w.title);
-    works.push({ id: `md-${w.artist}|${w.title}`, title: w.title, artist: w.artist, nationality, date: w.date, img, src });
+    // After a failed lookup leave the fields unset (not ''), so studying the exam fills them in later.
+    const known = isComplete(info);
+    works.push({
+      id: `md-${w.artist}|${w.title}`, title: w.title, artist: w.artist, nationality: known ? info.nationality : undefined,
+      movement: w.movement ?? (known ? info.movement : undefined), date: w.date, img, src,
+    });
   }
 
   return { title: parsed.title, terms, works, noImage };

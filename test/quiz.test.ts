@@ -1,4 +1,4 @@
-import { drawCard, isCardError, resolveKind, studySources } from '../src/renderer/js/quiz.js';
+import { availableQuestions, drawCard, isCardError, resolveKind, studySources } from '../src/renderer/js/quiz.js';
 import type { Card, Exam, Mode, Kind, Term, Work } from '../src/renderer/js/types.js';
 import { restoreFetch, stubFetch } from './helpers/fakeFetch.js';
 
@@ -72,10 +72,14 @@ describe('term cards', () => {
 });
 
 describe('work cards', () => {
+  // Only the artist can be asked about: no image (so no title question), no year, no movement.
+  const artistOnly = (artist: string, title = `${artist} work`): Work => ({ id: title, title, artist, date: '', img: '' });
+
   it('quiz: artist choices include the answer and are distinct (case-insensitive)', async () => {
-    const e = exam({ works: [work('Édouard Manet'), work('Claude Monet'), work('claude monet', 'dup')] });
+    const e = exam({ works: [artistOnly('Édouard Manet'), artistOnly('Claude Monet'), artistOnly('claude monet', 'dup')] });
     for (let i = 0; i < 25; i++) {
       const card = await draw(e, 'works', 'quiz');
+      expect(card).toMatchObject({ question: 'artist' });
       expect(card.choices).toHaveLength(4);
       expect(card.choices).toContain(card.answer);
       const lower = (card.choices ?? []).map((c) => c.toLowerCase());
@@ -84,15 +88,117 @@ describe('work cards', () => {
   });
 
   it('carries everything the UI shows', async () => {
-    const card = await draw(exam({ works: [work('Goya', 'Third of May')] }), 'works', 'flash');
+    const card = await draw(exam({ works: [{ ...work('Goya', 'Third of May'), movement: 'Romanticism' }] }), 'works', 'flash');
     expect(card).toMatchObject({
-      kind: 'works', title: 'Third of May', artist: 'Goya', nationality: 'French', date: '1800', img: 'i.png', src: 's', choices: null,
+      kind: 'works', question: 'artist', title: 'Third of May', artist: 'Goya', nationality: 'French', movement: 'Romanticism',
+      date: '1800', img: 'i.png', src: 's', answer: 'Goya', choices: null,
     });
   });
 
-  it('a work with no artist cannot be a multiple-choice question', async () => {
-    const card = await draw(exam({ works: [{ id: 1, title: 'Mona Lisa', artist: '', date: '', img: '', src: '' }] }), 'works', 'quiz');
+  it('flashcards always carry the artist as the answer', async () => {
+    const e = exam({ works: [{ ...work('Goya'), movement: 'Romanticism' }] });
+    for (let i = 0; i < 20; i++) expect(await draw(e, 'works', 'flash')).toMatchObject({ question: 'artist', answer: 'Goya', choices: null });
+  });
+
+  it('a work with nothing to ask about is shown as a flashcard even in quiz mode', async () => {
+    const card = await draw(exam({ works: [{ id: 1, title: 'Mona Lisa', artist: '', date: '', img: '' }] }), 'works', 'quiz');
     expect(card.choices).toBeNull();
+  });
+});
+
+describe('availableQuestions', () => {
+  const base: Work = { id: 1, title: 'Olympia', artist: 'Manet', date: '1863', img: 'i.png', movement: 'Realism' };
+
+  it('offers every question when everything is known', () => {
+    expect(availableQuestions(base).sort()).toEqual(['artist', 'movement', 'title', 'year']);
+  });
+
+  it('skips what is unknown', () => {
+    expect(availableQuestions({ ...base, artist: '' })).not.toContain('artist');
+    expect(availableQuestions({ ...base, movement: '' })).not.toContain('movement');
+    expect(availableQuestions({ ...base, movement: undefined })).not.toContain('movement');
+    expect(availableQuestions({ ...base, date: 'undated' })).not.toContain('year');
+    expect(availableQuestions({ ...base, date: '' })).not.toContain('year');
+  });
+
+  it('does not ask for the title when there is no image, since the title is shown instead', () => {
+    expect(availableQuestions({ ...base, img: '' })).not.toContain('title');
+    expect(availableQuestions(base, false)).not.toContain('title');
+  });
+
+  it('offers nothing for a work with no facts', () => {
+    expect(availableQuestions({ id: 1, title: 'Untitled', artist: '', date: '', img: '' })).toEqual([]);
+  });
+});
+
+describe('work quiz questions', () => {
+  const full = (over: Partial<Work> = {}): Work => ({
+    id: 1, title: 'Liberty Leading the People', artist: 'Eugène Delacroix', nationality: 'French', movement: 'Romanticism',
+    date: '1830', img: 'liberty.png', src: 's', ...over,
+  });
+  const others = [
+    full({ id: 2, title: 'Olympia', artist: 'Édouard Manet', movement: 'Realism', date: '1863' }),
+    full({ id: 3, title: 'The Hay Wain', artist: 'John Constable', movement: 'Romanticism', date: '1821' }),
+  ];
+  const e = exam({ works: [full(), ...others] });
+  const factOf = (w: Work, q: string): string => ({ artist: w.artist, title: w.title, year: w.date, movement: w.movement ?? '' })[q] ?? '';
+
+  it('asks about the artist, title, year and movement', async () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 150; i++) seen.add((await draw(e, 'works', 'quiz') as { question: string }).question);
+    expect([...seen].sort()).toEqual(['artist', 'movement', 'title', 'year']);
+  });
+
+  it('every question has the right answer, and four distinct choices that include it', async () => {
+    for (let i = 0; i < 120; i++) {
+      const card = await draw(e, 'works', 'quiz');
+      if (card.kind === 'terms') throw new Error('expected a work card');
+      const source = e.works.find((w) => w.id === card.id);
+      expect(card.answer).toBe(factOf(source!, card.question));
+      expect(card.choices).toHaveLength(4);
+      expect(card.choices).toContain(card.answer);
+      const lower = (card.choices ?? []).map((c) => c.toLowerCase());
+      expect(new Set(lower).size).toBe(4);
+    }
+  });
+
+  it('title choices come from the exam and from a pool of famous works', async () => {
+    const onlyTitle = exam({ works: [{ id: 1, title: 'Obscure Piece', artist: '', date: '', img: 'x.png' }] });
+    const card = await draw(onlyTitle, 'works', 'quiz');
+    expect(card).toMatchObject({ question: 'title', answer: 'Obscure Piece' });
+    expect(card.choices).toHaveLength(4);
+  });
+
+  it('never asks for the title of a work with no image', async () => {
+    const noImage = exam({ works: [full({ img: '' })] });
+    for (let i = 0; i < 60; i++) expect((await draw(noImage, 'works', 'quiz') as { question: string }).question).not.toBe('title');
+  });
+
+  it('year choices are dates formatted like the answer', async () => {
+    for (const [date, pattern] of [['1814', /^\d{4}$/], ['1796-98', /^\d{4}-\d{2}$/], ['c. 1890-94', /^c\. \d{4}-\d{2}$/]] as const) {
+      const onlyYear = exam({ works: [{ id: 1, title: 'T', artist: '', date, img: '' }] });
+      const card = await draw(onlyYear, 'works', 'quiz');
+      expect(card).toMatchObject({ question: 'year', answer: date });
+      for (const choice of card.choices ?? []) expect(choice).toMatch(pattern);
+    }
+  });
+
+  it('movement choices are other movements from the exam or famous ones, never duplicates of the answer', async () => {
+    const onlyMovement = exam({ works: [
+      { id: 1, title: 'T', artist: '', date: '', img: '', movement: 'Romanticism' },
+      { id: 2, title: 'U', artist: '', date: '', img: '', movement: 'romanticism' },
+    ] });
+    for (let i = 0; i < 20; i++) {
+      const card = await draw(onlyMovement, 'works', 'quiz');
+      expect(card).toMatchObject({ question: 'movement' });
+      const lower = (card.choices ?? []).map((c) => c.toLowerCase());
+      expect(lower.filter((c) => c === 'romanticism')).toHaveLength(1);
+      expect(card.choices).toHaveLength(4);
+    }
+  });
+
+  it('carries the movement for the answer screen', async () => {
+    expect(await draw(e, 'works', 'flash')).toMatchObject({ movement: expect.stringMatching(/Romanticism|Realism/) as string });
   });
 });
 
