@@ -25,17 +25,21 @@ npm start
 
 This compiles the TypeScript to `build/` and launches the app.
 
-## Package as a macOS app
+## Build the installer
 
 ```bash
-npm run package
+npm run dist
 ```
 
-This builds `dist/Art History Study-darwin-<arch>/Art History Study.app` for your Mac's architecture. Drag it into `/Applications`.
+This packages the app and wraps it in `dist/Art-History-Study-<version>-<arch>.dmg` for your Mac's architecture (Apple Silicon or Intel). Open the `.dmg` and drag **Art History Study** onto **Applications**.
 
-The app is unsigned. On another Mac, right-click → **Open** the first time to get past Gatekeeper.
+To build just the `.app` without the installer, run `npm run package`; it lands in `dist/Art History Study-darwin-<arch>/`.
 
-The packaged app keeps its own saved data, separate from `npm start`, so exams made in one won't appear in the other.
+**First launch on another Mac:** the app is only ad-hoc signed (no paid Apple Developer ID), so macOS will say it can't verify the developer. Right-click the app → **Open** → **Open**. If macOS says the app is "damaged", run `xattr -cr "/Applications/Art History Study.app"` once.
+
+An installer built on Apple Silicon only runs on Apple Silicon; build on an Intel Mac for an Intel installer.
+
+The installed app keeps its own saved data, separate from `npm start`, so exams made in one won't appear in the other.
 
 ## Usage
 
@@ -81,6 +85,7 @@ Type a file path (or use **Browse…**) in the exam editor. See [`sample-exam.md
 | `npm test` | Run the Jest tests |
 | `npm run test:coverage` | Tests with a coverage report |
 | `npm run package` | Build and package the `.app` |
+| `npm run dist` | Package, then build the `.dmg` installer |
 
 Tests never touch the network: `fetch` is stubbed. UI tests run the real UI modules in jsdom.
 
