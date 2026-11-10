@@ -104,6 +104,11 @@ Tests never touch the network: `fetch` is stubbed. UI tests run the real UI modu
 
 Pull requests run typecheck, lint, tests and build in GitHub Actions (`.github/workflows/ci.yml`).
 
+### Dependency notes
+
+- `package.json` forces `minimatch` to `^11.0.1` (`overrides`) to resolve a denial-of-service advisory (GHSA-g3hv-75wg-m249). ESLint, typescript-eslint, `@electron/asar` and Jest's coverage helper still ask for `minimatch` 9 or 10, and none of their latest releases has moved on. Remove the override once they do.
+- `deepmerge` (low severity, prototype poisoning, GHSA-gcqx-w48m-w2h4) is pulled in by Jest, and no patched version exists. It only merges Jest's own configuration during development and is not part of the app.
+
 ### Project structure
 
 ```
