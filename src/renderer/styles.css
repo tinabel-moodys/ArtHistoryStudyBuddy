@@ -107,3 +107,7 @@ a.source { color: #9aa0ff; }
 .edit-form { text-align: left; margin-top: 1rem; padding-top: .8rem; border-top: 1px solid #3a3a42; }
 .edit-form label.field { display: block; margin: .5rem 0; font-size: .85rem; opacity: .9; }
 .edit-form input, .edit-form textarea { display: block; width: 100%; margin: .2rem 0 0; }
+.edit-preview { margin: .3rem 0; }
+.edit-preview img { max-width: 100%; max-height: 8rem; border-radius: 6px; margin: 0; }
+.edit-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0; }
+.edit-actions button { margin: 0; }

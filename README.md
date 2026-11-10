@@ -56,6 +56,8 @@ Exams and scores are saved in `~/Library/Application Support/art-history-study`.
      - **Works** are asked about at random: the **artist**, the **title**, the **year** and the **art movement** (Impressionism, Realism, …). A question is only asked when the app knows the answer, so a work with no movement never gets a movement question.
      - **Terms** show the definition with the term blanked out of it.
    - After you answer (or reveal), **Edit details** lets you correct that work's artist, nationality, title, date and movement, or a term's name and definition. Edits are saved to the exam. A corrected nationality also applies to that artist's other works.
+     - A work with no picture (or the wrong one) can be given one there: paste an `https://` image link, **Choose a file…** from your Mac (it is scaled down to 640 px and saved inside the exam, about 35 KB each), or **Find automatically** to search Wikimedia Commons and the Met again with the title and artist as you've corrected them. **Remove** clears it.
+     - Pictures are saved in the app's browser storage (about 5 MB in total). If that is full, the edit is undone and you're told; a link takes almost no room.
 
 Use ↺ on the home screen to reset an exam's scores.
 
