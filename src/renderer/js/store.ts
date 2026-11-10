@@ -36,42 +36,15 @@ function migrate(e: SavedExam): Exam {
   return { name: e.name, works: e.works ?? [], terms: e.terms ?? [], filter: e.filter ?? null, stats: e.stats ?? {} };
 }
 
-const BACKUP_KEY = 'exams.backup';
-
-/** Keep the unreadable data: the next save would otherwise overwrite it for good. */
-function backUp(raw: string): void {
-  try { localStorage.setItem(BACKUP_KEY, raw); } catch { /* storage unavailable or full */ }
-}
-
-const looksSaved = (e: unknown): e is SavedExam =>
-  typeof e === 'object' && e !== null && typeof (e as { name?: unknown }).name === 'string';
-
-/** Reads each saved exam on its own, so one bad entry doesn't take the others with it. */
 function load(): Exam[] {
-  let raw: string | null;
-  try { raw = localStorage.getItem(KEY); } catch { return []; }
-  if (raw === null) return [];
-
-  let saved: unknown;
-  try { saved = JSON.parse(raw); } catch { backUp(raw); return []; }
-  if (!Array.isArray(saved)) { backUp(raw); return []; }
-
-  const loaded: Exam[] = [];
-  let skipped = false;
-  for (const entry of saved) {
-    try {
-      if (looksSaved(entry)) loaded.push(migrate(entry));
-      else skipped = true;
-    } catch {
-      skipped = true;
-    }
+  try {
+    return (JSON.parse(localStorage.getItem(KEY) ?? '[]') as SavedExam[]).map(migrate);
+  } catch {
+    return [];
   }
-  if (skipped) backUp(raw);
-  return loaded;
 }
 
 const exams: Exam[] = load();
-/** Throws if the browser refuses the write (e.g. storage full). */
 const persist = (): void => { localStorage.setItem(KEY, JSON.stringify(exams)); };
 
 export const makeExam = ({ name, works = [], terms = [], filter = null }: Partial<Exam> & { name: string }): Exam =>
@@ -79,11 +52,7 @@ export const makeExam = ({ name, works = [], terms = [], filter = null }: Partia
 
 export const getExams = (): Exam[] => exams;
 
-/** Throws (and leaves the list unchanged) if the exam can't be saved. */
-export function addExam(exam: Exam): void {
-  exams.push(exam);
-  try { persist(); } catch (error) { exams.pop(); throw error; }
-}
+export function addExam(exam: Exam): void { exams.push(exam); persist(); }
 export function removeExam(index: number): void { exams.splice(index, 1); persist(); }
 export function resetStats(index: number): void {
   const exam = exams[index];

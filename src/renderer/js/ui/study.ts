@@ -2,7 +2,7 @@
 // persistence in store.ts.
 import { drawCard, isCardError, resolveKind, studySources } from '../quiz.js';
 import { enrichWorks } from '../services/enrich.js';
-import { isComplete, lookupWorkInfo } from '../services/workInfo.js';
+import { lookupWorkInfo } from '../services/workInfo.js';
 import { kindStats, recordResult, saveExams } from '../store.js';
 import type { Card, Exam, Kind, Mode, Question, Source, WorkCard } from '../types.js';
 import { indexOf, type ActionMap } from './actions.js';
@@ -66,7 +66,6 @@ async function backfillArtistInfo(owner: Exam, c: Card): Promise<void> {
   const info = await lookupWorkInfo(c);
   c.nationality ??= info.nationality;
   c.movement ??= info.movement;
-  if (!isComplete(info)) return; // a request failed: show what we have, but don't save '' as "unknown"
   const saved = owner.works.find((w) => w.id === c.id);
   if (saved) {
     saved.nationality ??= info.nationality;

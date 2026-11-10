@@ -69,27 +69,7 @@ export function open(): void {
   void loadDepartments();
 }
 
-let importing = false;
-
-/** Greys out the import buttons while an import runs, so a second click can't append everything twice. */
-function setImporting(busy: boolean): void {
-  importing = busy;
-  for (const action of ['editor.importPath', 'editor.browse']) {
-    for (const button of document.querySelectorAll<HTMLButtonElement>(`button[data-action="${action}"]`)) button.disabled = busy;
-  }
-}
-
 async function runImport(path: string): Promise<void> {
-  if (importing) return;
-  setImporting(true);
-  try {
-    await importFile(path);
-  } finally {
-    setImporting(false);
-  }
-}
-
-async function importFile(path: string): Promise<void> {
   let text: string;
   try {
     text = await window.api.readMd(path);
@@ -134,12 +114,7 @@ function save(): void {
   if ('error' in result) { say(result.error); return; }
   if (!works.length && !terms.length && !result.filter) { say('Add works, terms, or a random pool.'); return; }
 
-  try {
-    addExam(makeExam({ name, works, terms, filter: result.filter }));
-  } catch {
-    say('Could not save the exam (storage full or unavailable).');
-    return;
-  }
+  addExam(makeExam({ name, works, terms, filter: result.filter }));
   go('home');
 }
 
